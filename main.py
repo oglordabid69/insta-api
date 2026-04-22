@@ -1,18 +1,17 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 import sqlite3
 import os
 from datetime import datetime
-from fastapi.responses import FileResponse
 
 app = FastAPI()
 
 # =========================
-# DB HELPERS
+# DB
 # =========================
 
 def get_db(project: str):
-    conn = sqlite3.connect(f"{project}.db", check_same_thread=False)
-    return conn
+    return sqlite3.connect(f"{project}.db", check_same_thread=False)
 
 def init_db(conn):
     cursor = conn.cursor()
@@ -28,7 +27,15 @@ def init_db(conn):
     conn.commit()
 
 # =========================
-# PROJECT CONTROL
+# ROOT
+# =========================
+
+@app.get("/")
+def home():
+    return {"status": "API running 🚀"}
+
+# =========================
+# PROJECTS
 # =========================
 
 @app.post("/project/create/{project}")
@@ -48,8 +55,7 @@ def delete_project(project: str):
 
 @app.get("/projects")
 def list_projects():
-    files = [f.replace(".db", "") for f in os.listdir() if f.endswith(".db")]
-    return {"projects": files}
+    return {"projects": [f.replace(".db", "") for f in os.listdir() if f.endswith(".db")]}
 
 # =========================
 # LEADS
@@ -83,7 +89,6 @@ def add_lead(project: str, data: dict):
 def get_leads(project: str):
     conn = get_db(project)
     cursor = conn.cursor()
-
     cursor.execute("SELECT * FROM leads")
     rows = cursor.fetchall()
     conn.close()
@@ -103,14 +108,13 @@ def get_leads(project: str):
 def delete_lead(project: str, lead_id: int):
     conn = get_db(project)
     cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
+    cursor.execute("DELETE FROM leads WHERE id=?", (lead_id,))
     conn.commit()
 
     if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    return {"message": f"lead {lead_id} deleted"}
+    return {"message": "deleted"}
 
 @app.put("/leads/{project}/{lead_id}")
 def update_lead(project: str, lead_id: int, data: dict):
@@ -119,8 +123,8 @@ def update_lead(project: str, lead_id: int, data: dict):
 
     cursor.execute("""
     UPDATE leads
-    SET company = ?, website = ?, score = ?
-    WHERE id = ?
+    SET company=?, website=?, score=?
+    WHERE id=?
     """, (
         data["company"],
         data["website"],
@@ -133,21 +137,21 @@ def update_lead(project: str, lead_id: int, data: dict):
     if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    return {"message": f"lead {lead_id} updated"}
+    return {"message": "updated"}
 
 # =========================
-# EXPORT DB (DOWNLOAD)
+# EXPORT DB
 # =========================
 
 @app.get("/export/{project}")
 def export_db(project: str):
-    file_path = f"{project}.db"
+    file = f"{project}.db"
 
-    if not os.path.exists(file_path):
+    if not os.path.exists(file):
         raise HTTPException(status_code=404, detail="Project not found")
 
     return FileResponse(
-        path=file_path,
-        filename=f"{project}.db",
+        file,
+        filename=file,
         media_type="application/octet-stream"
     )
