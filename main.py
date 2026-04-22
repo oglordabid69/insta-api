@@ -2,9 +2,9 @@ from fastapi import FastAPI, HTTPException
 import sqlite3
 import os
 from datetime import datetime
+from fastapi.responses import FileResponse
 
 app = FastAPI()
-
 
 # =========================
 # DB HELPERS
@@ -13,7 +13,6 @@ app = FastAPI()
 def get_db(project: str):
     conn = sqlite3.connect(f"{project}.db", check_same_thread=False)
     return conn
-
 
 def init_db(conn):
     cursor = conn.cursor()
@@ -28,7 +27,6 @@ def init_db(conn):
     """)
     conn.commit()
 
-
 # =========================
 # PROJECT CONTROL
 # =========================
@@ -40,7 +38,6 @@ def create_project(project: str):
     conn.close()
     return {"message": f"{project} created"}
 
-
 @app.delete("/project/delete/{project}")
 def delete_project(project: str):
     file = f"{project}.db"
@@ -49,15 +46,13 @@ def delete_project(project: str):
         return {"message": f"{project} deleted"}
     raise HTTPException(status_code=404, detail="Project not found")
 
-
 @app.get("/projects")
 def list_projects():
     files = [f.replace(".db", "") for f in os.listdir() if f.endswith(".db")]
     return {"projects": files}
 
-
 # =========================
-# LEAD CONTROL
+# LEADS
 # =========================
 
 @app.post("/leads/{project}")
@@ -84,7 +79,6 @@ def add_lead(project: str, data: dict):
         conn.close()
         return {"error": "duplicate website"}
 
-
 @app.get("/leads/{project}")
 def get_leads(project: str):
     conn = get_db(project)
@@ -105,7 +99,6 @@ def get_leads(project: str):
         for r in rows
     ]
 
-
 @app.delete("/leads/{project}/{lead_id}")
 def delete_lead(project: str, lead_id: int):
     conn = get_db(project)
@@ -118,7 +111,6 @@ def delete_lead(project: str, lead_id: int):
         raise HTTPException(status_code=404, detail="Lead not found")
 
     return {"message": f"lead {lead_id} deleted"}
-
 
 @app.put("/leads/{project}/{lead_id}")
 def update_lead(project: str, lead_id: int, data: dict):
@@ -142,3 +134,20 @@ def update_lead(project: str, lead_id: int, data: dict):
         raise HTTPException(status_code=404, detail="Lead not found")
 
     return {"message": f"lead {lead_id} updated"}
+
+# =========================
+# EXPORT DB (DOWNLOAD)
+# =========================
+
+@app.get("/export/{project}")
+def export_db(project: str):
+    file_path = f"{project}.db"
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return FileResponse(
+        path=file_path,
+        filename=f"{project}.db",
+        media_type="application/octet-stream"
+    )

@@ -1,163 +1,64 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
-import sqlite3
-import os
-from datetime import datetime
+import requests
 
-app = FastAPI()
+BASE = "https://insta-api-5g7b.onrender.com"
 
+# -------------------------
+# CREATE PROJECT
+# -------------------------
+def create_project(name):
+    return requests.post(f"{BASE}/project/create/{name}").json()
 
-# =========================
-# DB HELPERS
-# =========================
+# -------------------------
+# ADD LEAD
+# -------------------------
+def add_lead(project, company, website, score):
+    data = {
+        "company": company,
+        "website": website,
+        "score": score
+    }
+    return requests.post(f"{BASE}/leads/{project}", json=data).json()
 
-def get_db(project: str):
-    conn = sqlite3.connect(f"{project}.db", check_same_thread=False)
-    return conn
+# -------------------------
+# GET LEADS
+# -------------------------
+def get_leads(project):
+    return requests.get(f"{BASE}/leads/{project}").json()
 
+# -------------------------
+# DELETE LEAD
+# -------------------------
+def delete_lead(project, lead_id):
+    return requests.delete(f"{BASE}/leads/{project}/{lead_id}").json()
 
-def init_db(conn):
-    cursor = conn.cursor()
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS leads (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        company TEXT,
-        website TEXT UNIQUE,
-        score INTEGER,
-        created_at TEXT
-    )
-    """)
-    conn.commit()
+# -------------------------
+# UPDATE LEAD
+# -------------------------
+def update_lead(project, lead_id, company, website, score):
+    data = {
+        "company": company,
+        "website": website,
+        "score": score
+    }
+    return requests.put(f"{BASE}/leads/{project}/{lead_id}", json=data).json()
 
+# -------------------------
+# EXPORT DATABASE (DOWNLOAD)
+# -------------------------
+def download_db(project):
+    r = requests.get(f"{BASE}/export/{project}")
 
-# =========================
-# PROJECT CONTROL
-# =========================
-
-@app.post("/project/create/{project}")
-def create_project(project: str):
-    conn = get_db(project)
-    init_db(conn)
-    conn.close()
-    return {"message": f"{project} created"}
-
-
-@app.delete("/project/delete/{project}")
-def delete_project(project: str):
-    file = f"{project}.db"
-    if os.path.exists(file):
-        os.remove(file)
-        return {"message": f"{project} deleted"}
-    raise HTTPException(status_code=404, detail="Project not found")
-
-
-@app.get("/projects")
-def list_projects():
-    files = [f.replace(".db", "") for f in os.listdir() if f.endswith(".db")]
-    return {"projects": files}
+    if r.status_code == 200:
+        with open(f"{project}.db", "wb") as f:
+            f.write(r.content)
+        return "Downloaded"
+    return r.text
 
 
 # =========================
-# LEAD CONTROL
+# TEST RUN
 # =========================
-
-@app.post("/leads/{project}")
-def add_lead(project: str, data: dict):
-    conn = get_db(project)
-    init_db(conn)
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute("""
-        INSERT INTO leads (company, website, score, created_at)
-        VALUES (?, ?, ?, ?)
-        """, (
-            data["company"],
-            data["website"],
-            data["score"],
-            datetime.utcnow().isoformat()
-        ))
-        conn.commit()
-        conn.close()
-        return {"message": "lead added"}
-
-    except sqlite3.IntegrityError:
-        conn.close()
-        return {"error": "duplicate website"}
-
-
-@app.get("/leads/{project}")
-def get_leads(project: str):
-    conn = get_db(project)
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT * FROM leads")
-    rows = cursor.fetchall()
-    conn.close()
-
-    return [
-        {
-            "id": r[0],
-            "company": r[1],
-            "website": r[2],
-            "score": r[3],
-            "created_at": r[4]
-        }
-        for r in rows
-    ]
-
-
-@app.delete("/leads/{project}/{lead_id}")
-def delete_lead(project: str, lead_id: int):
-    conn = get_db(project)
-    cursor = conn.cursor()
-
-    cursor.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
-    conn.commit()
-
-    if cursor.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Lead not found")
-
-    return {"message": f"lead {lead_id} deleted"}
-
-
-@app.put("/leads/{project}/{lead_id}")
-def update_lead(project: str, lead_id: int, data: dict):
-    conn = get_db(project)
-    cursor = conn.cursor()
-
-    cursor.execute("""
-    UPDATE leads
-    SET company = ?, website = ?, score = ?
-    WHERE id = ?
-    """, (
-        data["company"],
-        data["website"],
-        data["score"],
-        lead_id
-    ))
-
-    conn.commit()
-
-    if cursor.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Lead not found")
-
-    return {"message": f"lead {lead_id} updated"}
-
-
-# =========================
-# EXPORT DATABASE (NEW)
-# =========================
-
-@app.get("/export/{project}")
-def export_db(project: str):
-    file_path = f"{project}.db"
-
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    return FileResponse(
-        path=file_path,
-        filename=f"{project}.db",
-        media_type="application/octet-stream"
-    )
+print(create_project("project1"))
+print(add_lead("project1", "OpenAI", "https://openai.com", 99))
+print(get_leads("project1"))
+print(download_db("project1"))
