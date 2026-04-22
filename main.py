@@ -1,18 +1,20 @@
 from fastapi import FastAPI, HTTPException
 import sqlite3
+import os
 from datetime import datetime
 
 app = FastAPI()
 
 
-# 🧠 FUNCTION: get database per project
+# =========================
+# DB HELPERS
+# =========================
+
 def get_db(project: str):
     conn = sqlite3.connect(f"{project}.db", check_same_thread=False)
-    conn.execute("PRAGMA journal_mode=WAL;")
     return conn
 
 
-# 🧠 FUNCTION: create table if not exists
 def init_db(conn):
     cursor = conn.cursor()
     cursor.execute("""
@@ -27,21 +29,70 @@ def init_db(conn):
     conn.commit()
 
 
-# 🟢 HOME
-@app.get("/")
-def home():
-    return {"status": "Multi-project API is live 🚀"}
+# =========================
+# PROJECT CONTROL
+# =========================
+
+@app.post("/project/create/{project}")
+def create_project(project: str):
+    conn = get_db(project)
+    init_db(conn)
+    conn.close()
+    return {"message": f"{project} created"}
 
 
-# 🔵 GET LEADS FOR A PROJECT
-@app.get("/leads/{project}")
-def get_leads(project: str):
+@app.delete("/project/delete/{project}")
+def delete_project(project: str):
+    file = f"{project}.db"
+    if os.path.exists(file):
+        os.remove(file)
+        return {"message": f"{project} deleted"}
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
+@app.get("/projects")
+def list_projects():
+    files = [f.replace(".db", "") for f in os.listdir() if f.endswith(".db")]
+    return {"projects": files}
+
+
+# =========================
+# LEAD CONTROL
+# =========================
+
+@app.post("/leads/{project}")
+def add_lead(project: str, data: dict):
     conn = get_db(project)
     init_db(conn)
     cursor = conn.cursor()
 
+    try:
+        cursor.execute("""
+        INSERT INTO leads (company, website, score, created_at)
+        VALUES (?, ?, ?, ?)
+        """, (
+            data["company"],
+            data["website"],
+            data["score"],
+            datetime.utcnow().isoformat()
+        ))
+        conn.commit()
+        conn.close()
+        return {"message": "lead added"}
+
+    except sqlite3.IntegrityError:
+        conn.close()
+        return {"error": "duplicate website"}
+
+
+@app.get("/leads/{project}")
+def get_leads(project: str):
+    conn = get_db(project)
+    cursor = conn.cursor()
+
     cursor.execute("SELECT * FROM leads")
     rows = cursor.fetchall()
+    conn.close()
 
     return [
         {
@@ -55,31 +106,6 @@ def get_leads(project: str):
     ]
 
 
-# 🟡 ADD LEAD TO A PROJECT
-@app.post("/leads/{project}")
-def add_lead(project: str, data: dict):
-    conn = get_db(project)
-    init_db(conn)
-    cursor = conn.cursor()
-
-    try:
-        cursor.execute(
-            "INSERT INTO leads (company, website, score, created_at) VALUES (?, ?, ?, ?)",
-            (
-                data["company"],
-                data["website"],
-                data["score"],
-                datetime.utcnow().isoformat()
-            )
-        )
-        conn.commit()
-        return {"message": f"added to {project}"}
-
-    except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Duplicate website")
-
-
-# 🔴 DELETE LEAD
 @app.delete("/leads/{project}/{lead_id}")
 def delete_lead(project: str, lead_id: int):
     conn = get_db(project)
@@ -88,52 +114,31 @@ def delete_lead(project: str, lead_id: int):
     cursor.execute("DELETE FROM leads WHERE id = ?", (lead_id,))
     conn.commit()
 
-    return {"message": f"deleted {lead_id} from {project}"}
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    return {"message": f"lead {lead_id} deleted"}
 
 
-# 🟢 FILTER
-@app.get("/leads/{project}/filter")
-def filter_leads(project: str, min_score: int = 0):
+@app.put("/leads/{project}/{lead_id}")
+def update_lead(project: str, lead_id: int, data: dict):
     conn = get_db(project)
     cursor = conn.cursor()
 
-    cursor.execute(
-        "SELECT * FROM leads WHERE score >= ?",
-        (min_score,)
-    )
-    rows = cursor.fetchall()
+    cursor.execute("""
+    UPDATE leads
+    SET company = ?, website = ?, score = ?
+    WHERE id = ?
+    """, (
+        data["company"],
+        data["website"],
+        data["score"],
+        lead_id
+    ))
 
-    return [
-        {
-            "id": r[0],
-            "company": r[1],
-            "website": r[2],
-            "score": r[3],
-            "created_at": r[4]
-        }
-        for r in rows
-    ]
+    conn.commit()
 
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
 
-# 🔍 SEARCH
-@app.get("/leads/{project}/search")
-def search_leads(project: str, query: str):
-    conn = get_db(project)
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "SELECT * FROM leads WHERE company LIKE ?",
-        (f"%{query}%",)
-    )
-    rows = cursor.fetchall()
-
-    return [
-        {
-            "id": r[0],
-            "company": r[1],
-            "website": r[2],
-            "score": r[3],
-            "created_at": r[4]
-        }
-        for r in rows
-    ]
+    return {"message": f"lead {lead_id} updated"}
