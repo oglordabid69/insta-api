@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 import sqlite3
 import os
 from datetime import datetime
@@ -142,3 +143,21 @@ def update_lead(project: str, lead_id: int, data: dict):
         raise HTTPException(status_code=404, detail="Lead not found")
 
     return {"message": f"lead {lead_id} updated"}
+
+
+# =========================
+# EXPORT DATABASE (NEW)
+# =========================
+
+@app.get("/export/{project}")
+def export_db(project: str):
+    file_path = f"{project}.db"
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return FileResponse(
+        path=file_path,
+        filename=f"{project}.db",
+        media_type="application/octet-stream"
+    )
